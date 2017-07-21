@@ -6,7 +6,7 @@ class ChatServer(object):
 
     def add_user(self, con):
         con.add_map(CLOSE, self.del_user)
-        con.add_map(WebSocket.LOAD, self.echo_msg)
+        con.add_map(WebSocket.TEXT, self.echo_msg)
         self.pool.add(con)
 
     def echo_msg(self, con, data):
