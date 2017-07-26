@@ -6,6 +6,9 @@ git add *
 git commit -a
 git push 
 ##############################################################################
+cd ~/projects/rapidserv-code
+git pull
+##############################################################################
 # create the develop branch, rapidserv.
 git branch -a
 git checkout -b development
@@ -56,6 +59,7 @@ cd ~/projects/rapidserv-code
 python2 setup.py sdist register upload
 rm -fr dist
 ##############################################################################
+
 
 
 

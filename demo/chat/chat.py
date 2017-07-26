@@ -10,13 +10,14 @@ class ChatServer(object):
         self.pool.add(con)
 
     def echo_msg(self, con, data):
-        for ind in self.pool: ind.wsdump(data)
+        for ind in self.pool: ind.ws_message(data)
 
     def del_user(self, con, reason):
         self.pool.remove(con)
         print 'Client closed!', reason
 
 chatserver = ChatServer()
+
 
 
 
