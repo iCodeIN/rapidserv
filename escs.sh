@@ -59,6 +59,10 @@ cd ~/projects/rapidserv-code
 python2 setup.py sdist register upload
 rm -fr dist
 ##############################################################################
+# delete, remove, clean, *.pyc files, vy, vyapp.
+cd /home/tau/projects/rapidserv-code/
+find . -name "*.pyc" -exec rm -f {} \;
+
 
 
 

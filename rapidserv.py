@@ -371,98 +371,19 @@ def make(searchpath, folder):
     searchpath = join(dirname(abspath(searchpath)), folder)
     return searchpath
 
-
-class WebSocket(object):
-    TEXT     = get_event()
-    BINARY   = get_event()
-    HEADERB1 = 1
-    HEADERB2 = 3
-    LENGTHSHORT = 4
-    LENGTHLONG = 5
-    MASK = 6
-    PAYLOAD = 7
-    MAXHEADER = 65536
-    STREAM = 0x0
-    TEXT = 0x1
-    BINARY = 0x2
-    CLOSE = 0x8
-    PING = 0x9
-    PONG = 0xA
-
-    # restrict the size of header and payload for security reasons
-    MAXPAYLOAD = 33554432
+class WSWriter(object):
+    """
+    """
 
     def __init__(self, spin):
-        self.spin = spin
+        self.spin       = spin
+        spin.send_msg   = self.send_msg
+        spin.send_bytes = self.send_bytes
 
-        self.headerbuffer = bytearray()
-
-        self.fin = 0
-        self.data = bytearray()
-        self.opcode = 0
-        self.hasmask = 0
-        self.maskarray = None
-        self.length = 0
-        self.lengtharray = None
-        self.index = 0
-
-        self.frag_start = False
-        self.frag_type = BINARY
-        self.frag_buffer = None
-        self.frag_decoder = codecs.getincrementaldecoder('utf-8')(errors='strict')
-        self.closed = False
-
-        self.state = self.HEADERB1
-
-
-        # spin.add_map(LOAD, self.decode)
-        spin.wsdump = self.wsdump  # hack?
-
-        spin.add_map(LOAD, self._handleData)
-
-    def on_ping(self):
-        pass
-
-    def extract_size(self):
-        pass
-
-    def extract_opcode(self):
-        pass
-
-    def is_bin(self):
-        pass
-
-    def is_text(self):
-        pass
-
-    def on_load(self, spin, data):
-        for char in data:
-            self._parseMessage(ord(char))
-  
-    def acc_header(self):
-        pass
-
-    def acc_header(self):
-        pass
-
-    def send_close_handshake(self, status=1000, reason=u''):
-        """
-        Send Close frame to the client. The underlying socket is only closed
-        when the client acknowledges the Close frame.
-        status is the closing identifier.
-        reason is the reason for the close.
-         """
-
-        close_msg = bytearray()
-        close_msg.extend(struct.pack("!H", status))
-        close_msg.extend(reason)
-
-        self._sendMessage(False, CLOSE, close_msg)
-
-    def ws_message(self, data):
+    def send_msg(self, data):
         self.send_data(False, TEXT, data)
 
-    def ws_bytes(self, data):
+    def send_bytes(self, data):
         self.send_data(False, BINARY, data)
 
     def send_data(self, fin, opcode, data):
@@ -496,8 +417,96 @@ class WebSocket(object):
 
         self.spin.dump(payload)
 
-    def on_frame(self):
+class WSReader(object):
+    TEXT             = get_event()
+    BINARY           = get_event()
+    INVALID_CODE     = get_event()
+    # FRAME     = get_event()
+
+    HEADERB1_CODE    = 1
+    HEADERB2_CODE    = 3
+    LENGTHSHORT_CODE = 4
+    LENGTHLONG_CODE  = 5
+    MASK_CODE        = 6
+    PAYLOAD_CODE     = 7
+    MAXHEADER_CODE   = 65536
+    STREAM_CODE      = 0x0
+    TEXT_CODE        = 0x1
+    BINARY_CODE      = 0x2
+    CLOSE_CODE       = 0x8
+    PING_CODE        = 0x9
+    PONG_CODE        = 0xA
+
+    # Restrict the size of header and payload for security reasons.
+    MAXPAYLOAD = 33554432
+
+    def __init__(self, spin):
+        self.spin = spin
+
+        self.headerbuffer = bytearray()
+
+        # The first byte contain the fin code, if the 
+        # first bit is 1 then the message is complete, if it is 0
+        # then it is fragmented.
+        self.fin = 0
+
+        # The first byte as well contains the opcode.
+        # The next three bytes are reserved and the last ones
+        # indicates the content type 0x1 or 0x2.
+        self.opcode = 0
+
+        self.data = bytearray()
+        self.hasmask = 0
+        self.maskarray = None
+        self.length = 0
+        self.lengtharray = None
+        self.index = 0
+
+        self.frag_start = False
+        self.frag_type = BINARY
+        self.frag_buffer = None
+        self.frag_decoder = codecs.getincrementaldecoder('utf-8')(errors='strict')
+        self.closed = False
+
+        self.state = self.HEADERB1
+
+        spin.add_map(LOAD, self.decode)
+
+    def on_ping(self):
         pass
+
+    def extract_size(self):
+        pass
+
+    def extract_opcode(self):
+        pass
+
+    def is_bin(self):
+        pass
+
+    def is_text(self):
+        pass
+
+    def on_load(self, spin, data):
+        for char in data:
+            self._parseMessage(ord(char))
+  
+    def acc_header(self):
+        pass
+
+    def send_close_handshake(self, status=1000, reason=u''):
+        """
+        Send Close frame to the client. The underlying socket is only closed
+        when the client acknowledges the Close frame.
+        status is the closing identifier.
+        reason is the reason for the close.
+         """
+
+        close_msg = bytearray()
+        close_msg.extend(struct.pack("!H", status))
+        close_msg.extend(reason)
+
+        self._sendMessage(False, CLOSE, close_msg)
 
     def validate_opcode(self, opcode):
         if self.opcode in (CLOSE, STREAM, TEXT, BINARY):
@@ -768,4 +777,5 @@ class WebSocket(object):
 # 
 # 
 # 
+
 
