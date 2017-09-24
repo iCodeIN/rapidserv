@@ -21,6 +21,8 @@ from os.path import getsize
 from mimetypes import guess_type
 from os.path import isfile, join, abspath, basename, dirname
 from jinja2 import Template, FileSystemLoader, Environment
+from struct import unpack
+
 import argparse
 import hashlib
 import base64
@@ -289,10 +291,10 @@ class DebugRequest(object):
         xmap(spin, RequestHandle.DONE, self.process)
 
     def process(self, spin, request):
-        print request.method
-        print request.path
-        print request.data
-        print request.headers
+        print(request.method)
+        print(request.path)
+        print(request.data)
+        print(request.headers)
 
 class InvalidRequest(object):
     """ 
@@ -379,16 +381,16 @@ class WSWriter(object):
 
     def __init__(self, spin):
         self.spin       = spin
-        spin.send_msg   = self.send_msg
-        spin.send_bytes = self.send_bytes
+        spin.ws_msg   = self.ws_msg
+        spin.ws_bytes = self.ws_bytes
 
-    def send_msg(self, data):
-        self.send_data(False, TEXT, data)
+    def ws_msg(self, data):
+        self.ws_send(False, TEXT, data)
 
-    def send_bytes(self, data):
-        self.send_data(False, BINARY, data)
+    def ws_bytes(self, data):
+        self.ws_send(False, BINARY, data)
 
-    def send_data(self, fin, opcode, data):
+    def ws_send(self, fin, opcode, data):
         pass
 
     def ws_close(self, status=1000, reason=u''):
@@ -410,13 +412,6 @@ class WSReader(object):
     OPCODE_ERR     = get_event()
     # FRAME     = get_event()
 
-    HEADERB1_CODE    = 1
-    HEADERB2_CODE    = 3
-    LENGTHSHORT_CODE = 4
-    LENGTHLONG_CODE  = 5
-    MASK_CODE        = 6
-    PAYLOAD_CODE     = 7
-    MAXHEADER_CODE   = 65536
     STREAM_CODE      = 0x0
     TEXT_CODE        = 0x1
     BINARY_CODE      = 0x2
@@ -425,7 +420,12 @@ class WSReader(object):
     PONG_CODE        = 0xA
 
     # Restrict the size of header and payload for security reasons.
+    MAXHEADER   = 65536
     MAXPAYLOAD = 33554432
+
+    OPCODES = (STREAM_CODE, 
+    TEXT_CODE, BINARY_CODE, PING_CODE, 
+    PONG_CODE, CLOSE_CODE)
 
     def __init__(self, spin):
         self.spin = spin
@@ -433,17 +433,16 @@ class WSReader(object):
         # The first byte contain the fin code, if the 
         # first bit is 1 then the message is complete, if it is 0
         # then it is fragmented.
-        self.fin = 0
+        self.fin = None
 
         # The first byte as well contains the opcode.
         # The next three bytes are reserved and the last ones
         # indicates the content type 0x1 or 0x2.
-        self.opcode = 0
+        self.opcode = None
         self.data   = bytearray()
-        self.mask   = 0
-        self.size   = 0
-        self.hlen   =
-        self.index  = 0
+        self.mask   = None
+        self.size   = None
+        self.hlen   = None
 
         self.type = BINARY
 
@@ -453,34 +452,52 @@ class WSReader(object):
         spin.add_map(LOAD, self.decode)
 
     def acc_header(self, spin, data):
-        self.header.extend(data)
+        self.data.extend(data)
         if len(data) >= 2:
-            if self.decode_header():
-                pass
+            self.decode_header()
 
-    def decode_header(self):
-        x           = self.header[0]
-        self.fin    = x & 0x80
-        self.opcode = x & 0x0F  
-        # self.validate_opcode()
-
-        del self.data[:hlen]
-        spin.del_map(LOAD, self.acc_header)
-        spin.add_map(LOAD, self.acc_data)
-
-    def acc_data(self, spin, data):
-        pass
-
-    def validate_opcode(self, opcode):
-        if opcode in (CLOSE, STREAM, TEXT, BINARY):
-            pass
-        elif opcode in (PONG, PING):
+    def validate_opcode(self):
+        if self.opcode in (self.PONG_CODE, self.PING_CODE):
             if len(self.data) > 125:
                 self.spin.drive(self.OPCODE_ERR, 
                     'Control length can not be > 125')
-        else:
+        elif not self.opcode in self.OPCODES:
             self.spin.drive(self.OPCODE_ERR, 
                 'Unknown opcode!')
 
+    def ext_size(self):
+        """
+        """
+
+        size = self.data[1] & 0b01111111
+
+        if size <= 125:
+            return 1, size
+        if size == 126:
+            if len(self.data) >= 4:
+                return 4, unpack('!H', self.data[2:])[0]
+        elif size >= 127:
+            if len(self.data) >= 10:
+                return 8, unpack('!Q', self.data[2:])[0]
+        return None, None
+
+    def decode_header(self):
+        x           = self.data[0]
+        self.fin    = x & 0x80
+        self.opcode = x & 0x0F  
+        self.validate_opcode()
+        self.hlen, self.size = self.ext_size()
+
+        if self.hlen == None: return
+
+        spin.del_map(LOAD, self.acc_header)
+        spin.add_map(LOAD, self.acc_data)
+    
+    def acc_data(self, spin, data):
+        self.data.extend(data)
+
+        if len(self.data) < self.size: return
+        self.add_map(LOAD, self.acc_header)
+        self.del_map(LOAD, self.acc_data)
 
 
