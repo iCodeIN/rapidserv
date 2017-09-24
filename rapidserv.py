@@ -407,7 +407,7 @@ class WSWriter(object):
 class WSReader(object):
     TEXT             = get_event()
     BINARY           = get_event()
-    INVALID_CODE     = get_event()
+    OPCODE_ERR     = get_event()
     # FRAME     = get_event()
 
     HEADERB1_CODE    = 1
@@ -439,48 +439,48 @@ class WSReader(object):
         # The next three bytes are reserved and the last ones
         # indicates the content type 0x1 or 0x2.
         self.opcode = 0
-
-        self.data = bytearray()
-        self.mask = 0
-        self.length = 0
-        self.index = 0
+        self.data   = bytearray()
+        self.mask   = 0
+        self.size   = 0
+        self.hlen   =
+        self.index  = 0
 
         self.type = BINARY
+
         # self.frag_decoder = codecs.getincrementaldecoder('utf-8')(errors='strict')
         self.closed = False
 
-        self.state = self.HEADERB1
         spin.add_map(LOAD, self.decode)
 
-    def on_ping(self):
-        pass
+    def acc_header(self, spin, data):
+        self.header.extend(data)
+        if len(data) >= 2:
+            if self.decode_header():
+                pass
 
-    def extract_size(self):
-        pass
+    def decode_header(self):
+        x           = self.header[0]
+        self.fin    = x & 0x80
+        self.opcode = x & 0x0F  
+        # self.validate_opcode()
 
-    def extract_opcode(self):
-        pass
+        del self.data[:hlen]
+        spin.del_map(LOAD, self.acc_header)
+        spin.add_map(LOAD, self.acc_data)
 
-    def is_bin(self):
-        pass
-
-    def is_text(self):
-        pass
-
-    def on_load(self, spin, data):
-        for char in data:
-            self.(ord(char))
-  
-    def acc_header(self):
+    def acc_data(self, spin, data):
         pass
 
     def validate_opcode(self, opcode):
-        if self.opcode in (CLOSE, STREAM, TEXT, BINARY):
-            return True
-        elif self.opcode in (PONG, PING):
+        if opcode in (CLOSE, STREAM, TEXT, BINARY):
+            pass
+        elif opcode in (PONG, PING):
             if len(self.data) > 125:
-                raise Exception('control frame length can not be > 125')
+                self.spin.drive(self.OPCODE_ERR, 
+                    'Control length can not be > 125')
         else:
-            return Exception('Unknown opcode!')
+            self.spin.drive(self.OPCODE_ERR, 
+                'Unknown opcode!')
+
 
 
