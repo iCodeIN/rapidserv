@@ -17,23 +17,27 @@ def response(con, request):
     con.add_data(HTML)
     con.done()
 
-@app.route('GET /')
-def index(con):
-    con.render('view.jinja', posts = DB.iterkeys())
+@app.request('GET /')
+def index(con, request):
+    con.render('view.jinja', posts = DB.keys())
     con.done()
 
-@app.route('GET /load_index')
-def load_index(con, index):
-    con.add_data(DB[index[0]], mimetype='image/jpeg')
+@app.request('GET /load_index')
+def load_index(con, request):
+    con.add_data(DB[request.query['index'][0]], 
+    mimetype='image/jpeg;')
+
     con.done()
 
-@app.route('POST /add_image')
-def add_image(con, file):
-    DB[file.filename] = file.file.read()
-    index(con)
+@app.request('POST /add_image')
+def add_image(con, request):
+    if request.data['file'].filename: 
+        DB[request.data['file'].filename] = request.data['file'].file.read()
+    index(con, request)
 
 if __name__ == '__main__':
     app.run()
+
 
 
 

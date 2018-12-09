@@ -9,8 +9,8 @@ from untwisted.event import get_event
 from untwisted.debug import on_event, on_all
 from untwisted import network
 
-from urlparse import parse_qs
-from cgi import FieldStorage
+from urllib.parse import parse_qs
+from cgi import FieldStorage, parse_header
 from tempfile import TemporaryFile as tmpfile
 
 from socket import socket, AF_INET, SOCK_STREAM, SOL_SOCKET, SO_REUSEADDR
@@ -32,13 +32,9 @@ class Spin(network.Spin):
         self.app      = app
         self.response = ''
         self.headers  = dict()
-        self.data     = ''
-        self.wsaccept = ''
+        self.data     = b''
 
         self.add_default_headers()
-
-    def set_wsaccept(self, key):
-        self.wsaccept = key
 
     def add_default_headers(self):
         self.set_response('HTTP/1.1 200 OK')
@@ -53,23 +49,15 @@ class Spin(network.Spin):
 
     def add_data(self, data, mimetype='text/html;charset=utf-8'):
         self.add_header(('Content-Type', mimetype))
-        self.data = str(data)
+        mimetype, options = parse_header(mimetype)
 
-    def handshake(self, protocol):
-        """
-        Do websocket handshake.
-        """
-
-        self.set_response('HTTP/1.1 101 Switching Protocols')
-        self.add_header(('Upgrade', 'websocket'), ('Connection', 'Upgrade'), 
-        ('Sec-Websocket-Protocol', protocol),
-        ('Sec-Websocket-Accept', self.wsaccept))
-
-        self.send_headers()
-        self.dump(self.data)
-        self.data = ''
-        self.headers.clear()
-
+        try:
+            charset = options['charset']
+        except KeyError:
+            self.data = data
+        else:
+            self.data = data.encode()
+        
     def done(self):
         self.headers['Content-Length'] = len(self.data)
         self.send_headers()
@@ -83,9 +71,10 @@ class Spin(network.Spin):
         """
 
         data = self.response
-        for key, value in self.headers.iteritems():
+        for key, value in self.headers.items():
             data = data + '\r\n' + '%s:%s' % (key, value)
         data = data + '\r\n\r\n'
+        data = data.encode('ascii')
         self.dump(data)
 
     def render(self, template_name, *args, **kwargs):
@@ -139,16 +128,6 @@ class RapidServ(object):
 
         xmap(spin, CLOSE, lambda con, err: lose(con))
 
-    def route(self, method):
-        """
-        """
-
-        def shell(handle):
-            xmap(self.local, ACCEPT, lambda local, spin: 
-                 xmap(spin, method, self.build_kw, handle))
-            return handle
-        return shell
-
     def request(self, method):
         """
         """
@@ -159,17 +138,6 @@ class RapidServ(object):
             return handle
         return shell
 
-    def build_kw(self, spin, request, handle):
-        """
-        """
-
-        kwargs = dict()
-        kwargs.update(request.query)
-
-        if request.data: 
-            kwargs.update(request.data)
-        handle(spin, **kwargs)
-
     def accept(self, handle):
         xmap(self.local, ACCEPT, lambda local, spin: handle(spin))
 
@@ -179,11 +147,11 @@ class RapidServ(object):
 
 class Request(object):
     def __init__(self, data):
-        headers                              = data.split('\r\n')
+        headers                              = data.decode('ascii').split('\r\n')
         request                              = headers.pop(0)
         self.method, self.path, self.version = request.split(' ')
         self.headers                         = Headers(headers)
-        self.fd                              = tmpfile('a+')
+        self.fd                              = tmpfile('a+b')
         self.data                            = None
         self.path, sep, self.query           = self.path.partition('?')
         self.query                           = parse_qs(self.query)
@@ -227,7 +195,6 @@ class RequestHandle(object):
         size = int(self.request.headers.get('content-length', '0'))
 
         NonPersistentConnection(spin)
-        # PersistentConnection(spin)
 
         if RequestHandle.MAX_SIZE <= size:
             spawn(spin, RequestHandle.OVERFLOW, self.request)
@@ -243,62 +210,24 @@ class MethodHandle(object):
         request.build_data()
         spawn(spin, request.method, request)
         spawn(spin, '%s %s' % (request.method, request.path), request)
-        spin.dump('')
+        # When there is no route found it is necessary to spawn DUMPED
+        # anyway otherwise we dont get the connection closed. 
+        # The browser will remain waiting for the service response.
+        spin.dump(b'')
 
 class NonPersistentConnection(object):
     def __init__(self, spin):
         xmap(spin, DUMPED, lambda con: lose(con))
-
-class PersistentConnection(object):
-    TIMEOUT = 10
-    MAX     = 10
-
-    def __init__(self, spin):
-        self.timer = Timer(PersistentConnection.TIMEOUT, lambda: lose(spin))
-        self.count = 0
-        xmap(spin, TmpFile.DONE, self.process)
-        xmap(spin, DUMPED, self.install_timeout)
-
-        xmap(spin, TransferHandle.DONE, 
-        lambda spin, request, data: self.timer.cancel())
-
-        spin.add_header(('connection', 'keep-alive'))
-        spin.add_header(('keep-alive', 'timeout=%s, max=%s' % (
-        PersistentConnection.TIMEOUT, PersistentConnection.MAX)))
-
-    def process(self, spin, fd, data):
-        self.count = self.count + 1
-
-        if self.count < PersistentConnection.MAX:
-            AccUntil(spin, data)
-
-    def install_timeout(self, spin):
-        self.timer = Timer(PersistentConnection.TIMEOUT, lambda: lose(spin))
 
 class DebugRequest(object):
     def __init__(self, spin):
         xmap(spin, RequestHandle.DONE, self.process)
 
     def process(self, spin, request):
-        print request.method
-        print request.path
-        print request.data
-        print request.headers
-
-class InvalidRequest(object):
-    """ 
-    """
-
-    def __init__(self, spin):
-        # xmap(spin, INVALID_BODY_SIZE, self.error)
-        # xmap(spin, IDLE_TIMEOUT, self.error)
-        pass
-
-    def error(self, spin):
-        spin.set_response('HTTP/1.1 400 Bad request')
-        HTML = '<html> <body> <h1> Bad request </h1> </body> </html>'
-        spin.add_data(HTML)
-        spin.done()
+        print(request.method)
+        print(request.path)
+        print(request.data)
+        print(request.headers)
 
 class Locate(object):
     """
@@ -361,15 +290,5 @@ def make(searchpath, folder):
     from os.path import join, abspath, dirname
     searchpath = join(dirname(abspath(searchpath)), folder)
     return searchpath
-
-
-
-
-
-
-
-
-
-
 
 

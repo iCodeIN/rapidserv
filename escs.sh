@@ -6,10 +6,18 @@ git add *
 git commit -a
 git push 
 ##############################################################################
+cd ~/projects/rapidserv-code
+git pull
+##############################################################################
 # create the develop branch, rapidserv.
 git branch -a
 git checkout -b development
 git push --set-upstream origin development
+##############################################################################
+# create the websocket branch.
+git branch -a
+git checkout -b websocket
+git push --set-upstream origin websocket
 ##############################################################################
 # merge master into development, rapidserv.
 cd ~/projects/rapidserv-code
@@ -40,7 +48,7 @@ git checkout *
 # install, rapidserv.
 sudo bash -i
 cd /home/tau/projects/rapidserv-code
-python2 setup.py install
+python setup.py install
 rm -fr build
 exit
 ##############################################################################
@@ -56,6 +64,12 @@ cd ~/projects/rapidserv-code
 python2 setup.py sdist register upload
 rm -fr dist
 ##############################################################################
+# delete, remove, clean, *.pyc files, vy, vyapp.
+cd /home/tau/projects/rapidserv-code/
+find . -name "*.pyc" -exec rm -f {} \;
+
+
+
 
 
 

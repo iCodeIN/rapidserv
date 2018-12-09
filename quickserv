@@ -1,7 +1,7 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 
 if __name__ == '__main__':
-    from rapidlib.rapidserv import RapidServ, DebugRequest
+    from rapidserv import RapidServ, DebugRequest
     from untwisted.network import xmap, core
     from untwisted.iostd import ACCEPT
     import argparse
@@ -23,6 +23,7 @@ if __name__ == '__main__':
     xmap(app.local, ACCEPT, setup)
     app.bind(args.addr, args.port, args.backlog)
     core.gear.mainloop()
+
 
 
 
