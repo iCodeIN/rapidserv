@@ -23,17 +23,15 @@ if __name__ == '__main__':
 
 # Install
 
+Rapidserv would run python3+ only.
+
 ~~~
-pip2 install -r requirements.txt
-pip2 install rapidserv
+pip install -r requirements.txt
+pip install rapidserv
 ~~~
 
 # Documentation
 
 [Wiki](https://github.com/iogf/rapidserv/wiki)
-
-
-
-
 
 
