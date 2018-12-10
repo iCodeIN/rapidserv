@@ -54,19 +54,20 @@ exit
 ##############################################################################
 # build, rapidserv, package, disutils.
 cd /home/tau/projects/rapidserv-code
-python2.6 setup.py sdist 
+python setup.py sdist 
 rm -fr dist
 rm MANIFEST
 ##############################################################################
 # share, put, place, host, package, python, pip, application, rapidserv.
 
 cd ~/projects/rapidserv-code
-python2 setup.py sdist register upload
+python setup.py sdist register upload
 rm -fr dist
 ##############################################################################
 # delete, remove, clean, *.pyc files, vy, vyapp.
 cd /home/tau/projects/rapidserv-code/
 find . -name "*.pyc" -exec rm -f {} \;
+
 
 
 
