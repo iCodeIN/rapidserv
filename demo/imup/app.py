@@ -2,7 +2,7 @@
 
 """
 
-from rapidserv import RapidServ, make, RequestHandle
+from rapidserv import RapidServ, make, RequestHandle, core
 import shelve
 
 DB_FILENAME = 'DB'
@@ -36,12 +36,5 @@ def add_image(con, request):
     index(con, request)
 
 if __name__ == '__main__':
-    app.run()
-
-
-
-
-
-
-
-
+    app.bind('0.0.0.0', 8000, 50)
+    core.gear.mainloop()

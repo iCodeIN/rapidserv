@@ -1,12 +1,13 @@
 """ 
 """
 
-from untwisted.network import xmap, zmap, core, spawn
-from untwisted.iostd import Stdin, Stdout, Server, DUMPED, lose, LOAD, ACCEPT, CLOSE
+from untwisted.sock_writer import SockWriter
+from untwisted.sock_reader import SockReader
+from untwisted.client import lose
+from untwisted.server import Server
+from untwisted.event import ACCEPT, CLOSE, DUMPED, Event
+from untwisted import core
 from untwisted.splits import AccUntil, TmpFile
-from untwisted.timer import Timer
-from untwisted.event import get_event
-from untwisted.debug import on_event, on_all
 from untwisted import network
 
 from urllib.parse import parse_qs
@@ -17,7 +18,7 @@ from socket import socket, AF_INET, SOCK_STREAM, SOL_SOCKET, SO_REUSEADDR
 from os.path import getsize
 from mimetypes import guess_type
 from os.path import isfile, join, abspath, basename, dirname
-from jinja2 import Template, FileSystemLoader, Environment
+from jinja2 import FileSystemLoader, Environment
 import argparse
 
 class Headers(dict):
@@ -101,7 +102,7 @@ class RapidServ(object):
         self.local.bind((addr, port))
         self.local.listen(backlog)
         
-        xmap(self.local, ACCEPT, self.handle_accept)
+        self.local.add_map(ACCEPT, self.handle_accept)
 
     def run(self):
         parser = argparse.ArgumentParser()
@@ -114,8 +115,8 @@ class RapidServ(object):
         core.gear.mainloop()
 
     def handle_accept(self, local, spin):
-        Stdin(spin)
-        Stdout(spin)
+        SockWriter(spin)
+        SockReader(spin)
         AccUntil(spin)
         TransferHandle(spin)
         RequestHandle(spin)
@@ -126,24 +127,24 @@ class RapidServ(object):
 
         # InvalidRequest(client)
 
-        xmap(spin, CLOSE, lambda con, err: lose(con))
+        spin.add_map(CLOSE, lambda con, err: lose(con))
 
     def request(self, method):
         """
         """
 
         def shell(handle):
-            xmap(self.local, ACCEPT, lambda local, spin: 
-                 xmap(spin, method, handle))
+            self.local.add_map(ACCEPT, lambda local, spin: 
+                 spin.add_map(method, handle))
             return handle
         return shell
 
     def accept(self, handle):
-        xmap(self.local, ACCEPT, lambda local, spin: handle(spin))
+        self.local.add_map(ACCEPT, lambda local, spin: handle(spin))
 
     def overflow(self, handle):
-        xmap(self.local, ACCEPT, lambda local, spin: 
-                    xmap(spin, RequestHandle.OVERFLOW, handle))
+        self.local.add_map(ACCEPT, lambda local, spin: 
+                    spin.add_map(RequestHandle.OVERFLOW, handle))
 
 class Request(object):
     def __init__(self, data):
@@ -161,24 +162,28 @@ class Request(object):
         self.data = FieldStorage(fp=self.fd, environ=get_env(self.headers))
 
 class TransferHandle(object):
-    DONE = get_event()
+    class DONE(Event):
+        pass
 
     def __init__(self, spin):
-        xmap(spin, AccUntil.DONE, lambda spin, request, data:
-        spawn(spin, TransferHandle.DONE, Request(request), data))
+        spin.add_map(AccUntil.DONE, lambda spin, request, data:
+        spin.drive(TransferHandle.DONE, Request(request), data))
 
 class RequestHandle(object):
-    DONE = get_event()
-    OVERFLOW     = get_event()
-    MAX_SIZE     = 1024 * 5024
+    class DONE(Event):
+        pass
 
+    class OVERFLOW(Event):
+        pass
+
+    MAX_SIZE     = 1024 * 5024
     def __init__(self, spin):
         self.request = None
-        xmap(spin, TransferHandle.DONE, self.process)
+        spin.add_map(TransferHandle.DONE, self.process)
 
         # It will not be spawned if it is a websocket connection.
-        xmap(spin, TmpFile.DONE,  
-                   lambda spin, fd, data: spawn(spin, 
+        spin.add_map(TmpFile.DONE,  
+                   lambda spin, fd, data: spin.drive(
                                  RequestHandle.DONE, self.request))
 
     def process(self, spin, request, data):
@@ -187,7 +192,7 @@ class RequestHandle(object):
         uptype       = request.headers.get('upgrade', '').lower()
 
         if contype == 'upgrade' and uptype == 'websocket':
-            spawn(spin, RequestHandle.DONE, request)
+            spin.drive(RequestHandle.DONE, request)
         else:
             self.accumulate(spin, data)
 
@@ -197,19 +202,19 @@ class RequestHandle(object):
         NonPersistentConnection(spin)
 
         if RequestHandle.MAX_SIZE <= size:
-            spawn(spin, RequestHandle.OVERFLOW, self.request)
+            spin.drive(RequestHandle.OVERFLOW, self.request)
         else:
             TmpFile(spin, data, size, self.request.fd)
 
 
 class MethodHandle(object):
     def __init__(self, spin):
-        xmap(spin, RequestHandle.DONE, self.process)
+        spin.add_map(RequestHandle.DONE, self.process)
 
     def process(self, spin, request):
         request.build_data()
-        spawn(spin, request.method, request)
-        spawn(spin, '%s %s' % (request.method, request.path), request)
+        spin.drive(request.method, request)
+        spin.drive('%s %s' % (request.method, request.path), request)
         # When there is no route found it is necessary to spawn DUMPED
         # anyway otherwise we dont get the connection closed. 
         # The browser will remain waiting for the service response.
@@ -217,11 +222,11 @@ class MethodHandle(object):
 
 class NonPersistentConnection(object):
     def __init__(self, spin):
-        xmap(spin, DUMPED, lambda con: lose(con))
+        spin.add_map(DUMPED, lambda con: lose(con))
 
 class DebugRequest(object):
     def __init__(self, spin):
-        xmap(spin, RequestHandle.DONE, self.process)
+        spin.add_map(RequestHandle.DONE, self.process)
 
     def process(self, spin, request):
         print(request.method)
@@ -234,7 +239,7 @@ class Locate(object):
     """
 
     def __init__(self, spin):
-        xmap(spin, 'GET', self.locate)
+        spin.add_map('GET', self.locate)
 
     def locate(self, spin, request):
         path = join(spin.app.app_dir, spin.app.static_dir, basename(request.path))
@@ -251,7 +256,7 @@ class Locate(object):
                      ('Content-Length', getsize(path)))
 
         spin.send_headers()
-        xmap(spin, OPEN_FILE_ERR, lambda con, err: lose(con))
+        spin.add_map(OPEN_FILE_ERR, lambda con, err: lose(con))
         drop(spin, path)
 
 def get_env(header):
@@ -268,7 +273,9 @@ def get_env(header):
     return environ
 
 
-OPEN_FILE_ERR = get_event()
+class OPEN_FILE_ERR(Event):
+    pass
+
 def drop(spin, filename):
     """
     Shouldn't be called outside this module.
@@ -278,7 +285,7 @@ def drop(spin, filename):
         fd = open(filename, 'rb')             
     except IOError as excpt:
         err = excpt.args[0]
-        spawn(spin, OPEN_FILE_ERR, err)
+        spin.drive(OPEN_FILE_ERR, err)
     else:
         spin.dumpfile(fd)
 

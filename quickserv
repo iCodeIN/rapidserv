@@ -2,7 +2,7 @@
 
 if __name__ == '__main__':
     from rapidserv import RapidServ, DebugRequest
-    from untwisted.network import xmap, core
+    from untwisted.network import core
     from untwisted.iostd import ACCEPT
     import argparse
     import os
@@ -20,7 +20,7 @@ if __name__ == '__main__':
     def setup(local, con):
         DebugRequest(con)
 
-    xmap(app.local, ACCEPT, setup)
+    app.local.add_map(ACCEPT, setup)
     app.bind(args.addr, args.port, args.backlog)
     core.gear.mainloop()
 

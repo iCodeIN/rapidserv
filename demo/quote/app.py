@@ -1,7 +1,7 @@
 """
 """
 
-from rapidserv import RapidServ, make
+from rapidserv import RapidServ, make, core
 import sqlite3
 
 DB_FILENAME = 'DB'
@@ -33,6 +33,7 @@ def add_quote(con, request):
     send_base(con, request)
 
 if __name__ == '__main__':
-    app.run()
+    app.bind('0.0.0.0', 8000, 50)
+    core.gear.mainloop()
     
 

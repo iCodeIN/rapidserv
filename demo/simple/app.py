@@ -1,14 +1,14 @@
 """
 """
 
-from rapidserv import RapidServ, core, xmap
+from rapidserv import RapidServ, core
 
 app = RapidServ(__file__)
 
 @app.accept
 class Simple(object):
     def __init__(self, con):
-        xmap(con, 'GET /', self.send_base)
+        con.add_map('GET /', self.send_base)
 
     def send_base(self, con, request):
         HTML = """ <html> 
@@ -21,18 +21,5 @@ class Simple(object):
         con.done()
 
 if __name__ == '__main__':
-    app.bind('0.0.0.0', 80, 60)
+    app.bind('0.0.0.0', 8000, 60)
     core.gear.mainloop()
-
-
-
-
-
-
-
-
-
-
-
-
-
