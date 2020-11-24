@@ -27,9 +27,9 @@ class Headers(dict):
             field, sep, value = ind.partition(':')
             self[field.lower()] = value
 
-class Spin(network.Spin):
+class SuperSocket(network.SuperSocket):
     def __init__(self, sock, app):
-        network.Spin.__init__(self, sock)
+        network.SuperSocket.__init__(self, sock)
         self.app      = app
         self.response = ''
         self.headers  = dict()
@@ -93,12 +93,12 @@ class RapidServ(object):
         self.loader       = FileSystemLoader(searchpath = join(self.app_dir, self.template_dir))
         self.env          = Environment(loader=self.loader, auto_reload=auto_reload)
         sock              = socket(AF_INET, SOCK_STREAM)
-        self.local        = network.Spin(sock)
+        self.local        = network.SuperSocket(sock)
         self.local.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
 
 
     def bind(self, addr, port, backlog):
-        Server(self.local, lambda sock: Spin(sock, self)) 
+        Server(self.local, lambda sock: SuperSocket(sock, self)) 
         self.local.bind((addr, port))
         self.local.listen(backlog)
         
@@ -114,37 +114,37 @@ class RapidServ(object):
         self.bind(args.addr, args.port, args.backlog)
         core.gear.mainloop()
 
-    def handle_accept(self, local, spin):
-        SockWriter(spin)
-        SockReader(spin)
-        AccUntil(spin)
-        TransferHandle(spin)
-        RequestHandle(spin)
-        MethodHandle(spin)
+    def handle_accept(self, local, ssock):
+        SockWriter(ssock)
+        SockReader(ssock)
+        AccUntil(ssock)
+        TransferHandle(ssock)
+        RequestHandle(ssock)
+        MethodHandle(ssock)
 
         # must be improved.
-        Locate(spin)
+        Locate(ssock)
 
         # InvalidRequest(client)
 
-        spin.add_map(CLOSE, lambda con, err: lose(con))
+        ssock.add_map(CLOSE, lambda con, err: lose(con))
 
     def request(self, method):
         """
         """
 
         def shell(handle):
-            self.local.add_map(ACCEPT, lambda local, spin: 
-                 spin.add_map(method, handle))
+            self.local.add_map(ACCEPT, lambda local, ssock: 
+                 ssock.add_map(method, handle))
             return handle
         return shell
 
     def accept(self, handle):
-        self.local.add_map(ACCEPT, lambda local, spin: handle(spin))
+        self.local.add_map(ACCEPT, lambda local, ssock: handle(ssock))
 
     def overflow(self, handle):
-        self.local.add_map(ACCEPT, lambda local, spin: 
-                    spin.add_map(RequestHandle.OVERFLOW, handle))
+        self.local.add_map(ACCEPT, lambda local, ssock: 
+                    ssock.add_map(RequestHandle.OVERFLOW, handle))
 
 class Request(object):
     def __init__(self, data):
@@ -165,9 +165,9 @@ class TransferHandle(object):
     class DONE(Event):
         pass
 
-    def __init__(self, spin):
-        spin.add_map(AccUntil.DONE, lambda spin, request, data:
-        spin.drive(TransferHandle.DONE, Request(request), data))
+    def __init__(self, ssock):
+        ssock.add_map(AccUntil.DONE, lambda ssock, request, data:
+        ssock.drive(TransferHandle.DONE, Request(request), data))
 
 class RequestHandle(object):
     class DONE(Event):
@@ -177,58 +177,58 @@ class RequestHandle(object):
         pass
 
     MAX_SIZE     = 1024 * 5024
-    def __init__(self, spin):
+    def __init__(self, ssock):
         self.request = None
-        spin.add_map(TransferHandle.DONE, self.process)
+        ssock.add_map(TransferHandle.DONE, self.process)
 
         # It will not be spawned if it is a websocket connection.
-        spin.add_map(TmpFile.DONE,  
-                   lambda spin, fd, data: spin.drive(
+        ssock.add_map(TmpFile.DONE,  
+                   lambda ssock, fd, data: ssock.drive(
                                  RequestHandle.DONE, self.request))
 
-    def process(self, spin, request, data):
+    def process(self, ssock, request, data):
         self.request = request
         contype      = request.headers.get('connection', '').lower()
         uptype       = request.headers.get('upgrade', '').lower()
 
         if contype == 'upgrade' and uptype == 'websocket':
-            spin.drive(RequestHandle.DONE, request)
+            ssock.drive(RequestHandle.DONE, request)
         else:
-            self.accumulate(spin, data)
+            self.accumulate(ssock, data)
 
-    def accumulate(self, spin, data):
+    def accumulate(self, ssock, data):
         size = int(self.request.headers.get('content-length', '0'))
 
-        NonPersistentConnection(spin)
+        NonPersistentConnection(ssock)
 
         if RequestHandle.MAX_SIZE <= size:
-            spin.drive(RequestHandle.OVERFLOW, self.request)
+            ssock.drive(RequestHandle.OVERFLOW, self.request)
         else:
-            TmpFile(spin, data, size, self.request.fd)
+            TmpFile(ssock, data, size, self.request.fd)
 
 
 class MethodHandle(object):
-    def __init__(self, spin):
-        spin.add_map(RequestHandle.DONE, self.process)
+    def __init__(self, ssock):
+        ssock.add_map(RequestHandle.DONE, self.process)
 
-    def process(self, spin, request):
+    def process(self, ssock, request):
         request.build_data()
-        spin.drive(request.method, request)
-        spin.drive('%s %s' % (request.method, request.path), request)
+        ssock.drive(request.method, request)
+        ssock.drive('%s %s' % (request.method, request.path), request)
         # When there is no route found it is necessary to spawn DUMPED
         # anyway otherwise we dont get the connection closed. 
         # The browser will remain waiting for the service response.
-        spin.dump(b'')
+        ssock.dump(b'')
 
 class NonPersistentConnection(object):
-    def __init__(self, spin):
-        spin.add_map(DUMPED, lambda con: lose(con))
+    def __init__(self, ssock):
+        ssock.add_map(DUMPED, lambda con: lose(con))
 
 class DebugRequest(object):
-    def __init__(self, spin):
-        spin.add_map(RequestHandle.DONE, self.process)
+    def __init__(self, ssock):
+        ssock.add_map(RequestHandle.DONE, self.process)
 
-    def process(self, spin, request):
+    def process(self, ssock, request):
         print(request.method)
         print(request.path)
         print(request.data)
@@ -238,11 +238,11 @@ class Locate(object):
     """
     """
 
-    def __init__(self, spin):
-        spin.add_map('GET', self.locate)
+    def __init__(self, ssock):
+        ssock.add_map('GET', self.locate)
 
-    def locate(self, spin, request):
-        path = join(spin.app.app_dir, spin.app.static_dir, basename(request.path))
+    def locate(self, ssock, request):
+        path = join(ssock.app.app_dir, ssock.app.static_dir, basename(request.path))
         if not isfile(path):
             return
 
@@ -252,12 +252,12 @@ class Locate(object):
         type_file, encoding = guess_type(path)
         default_type = 'application/octet-stream'
 
-        spin.add_header(('Content-Type', type_file if type_file else default_type),
+        ssock.add_header(('Content-Type', type_file if type_file else default_type),
                      ('Content-Length', getsize(path)))
 
-        spin.send_headers()
-        spin.add_map(OPEN_FILE_ERR, lambda con, err: lose(con))
-        drop(spin, path)
+        ssock.send_headers()
+        ssock.add_map(OPEN_FILE_ERR, lambda con, err: lose(con))
+        drop(ssock, path)
 
 def get_env(header):
     """
@@ -276,7 +276,7 @@ def get_env(header):
 class OPEN_FILE_ERR(Event):
     pass
 
-def drop(spin, filename):
+def drop(ssock, filename):
     """
     Shouldn't be called outside this module.
     """
@@ -285,9 +285,9 @@ def drop(spin, filename):
         fd = open(filename, 'rb')             
     except IOError as excpt:
         err = excpt.args[0]
-        spin.drive(OPEN_FILE_ERR, err)
+        ssock.drive(OPEN_FILE_ERR, err)
     else:
-        spin.dumpfile(fd)
+        ssock.dumpfile(fd)
 
 def make(searchpath, folder):
     """
