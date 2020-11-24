@@ -36,5 +36,5 @@ def add_image(con, request):
     index(con, request)
 
 if __name__ == '__main__':
-    app.bind('0.0.0.0', 8000, 50)
+    app.bind('0.0.0.0', 1234, 50)
     core.gear.mainloop()

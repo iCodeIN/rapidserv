@@ -5,7 +5,7 @@ from untwisted.sock_writer import SockWriter
 from untwisted.sock_reader import SockReader
 from untwisted.client import lose
 from untwisted.server import Server
-from untwisted.event import ACCEPT, CLOSE, DUMPED, Event
+from untwisted.event import ACCEPT, CLOSE, DUMPED, Event, LOAD
 from untwisted import core
 from untwisted.splits import AccUntil, TmpFile
 from untwisted import network
@@ -20,6 +20,7 @@ from mimetypes import guess_type
 from os.path import isfile, join, abspath, basename, dirname
 from jinja2 import FileSystemLoader, Environment
 import argparse
+import sys
 
 class Headers(dict):
     def __init__(self, data):
@@ -82,7 +83,7 @@ class SuperSocket(network.SuperSocket):
         template = self.app.env.get_template(template_name)
         self.add_data(template.render(*args, **kwargs))
 
-class RapidServ(object):
+class RapidServ:
     """
     """
 
@@ -117,17 +118,20 @@ class RapidServ(object):
     def handle_accept(self, local, ssock):
         SockWriter(ssock)
         SockReader(ssock)
-        AccUntil(ssock)
         TransferHandle(ssock)
         RequestHandle(ssock)
         MethodHandle(ssock)
+
+        acc = AccUntil(ssock)
+        acc.start()
+        # DebugRequest(ssock)
 
         # must be improved.
         Locate(ssock)
 
         # InvalidRequest(client)
-
         ssock.add_map(CLOSE, lambda con, err: lose(con))
+        # ssock.add_map(LOAD, lambda con, data: sys.stdout.write(data.decode('utf8')))
 
     def request(self, method):
         """
@@ -146,7 +150,7 @@ class RapidServ(object):
         self.local.add_map(ACCEPT, lambda local, ssock: 
                     ssock.add_map(RequestHandle.OVERFLOW, handle))
 
-class Request(object):
+class Request:
     def __init__(self, data):
         headers                              = data.decode('ascii').split('\r\n')
         request                              = headers.pop(0)
@@ -161,7 +165,7 @@ class Request(object):
         self.fd.seek(0)
         self.data = FieldStorage(fp=self.fd, environ=get_env(self.headers))
 
-class TransferHandle(object):
+class TransferHandle:
     class DONE(Event):
         pass
 
@@ -169,7 +173,7 @@ class TransferHandle(object):
         ssock.add_map(AccUntil.DONE, lambda ssock, request, data:
         ssock.drive(TransferHandle.DONE, Request(request), data))
 
-class RequestHandle(object):
+class RequestHandle:
     class DONE(Event):
         pass
 
@@ -204,10 +208,10 @@ class RequestHandle(object):
         if RequestHandle.MAX_SIZE <= size:
             ssock.drive(RequestHandle.OVERFLOW, self.request)
         else:
-            TmpFile(ssock, data, size, self.request.fd)
+            TmpFile(ssock).start(self.request.fd, size, data)
 
 
-class MethodHandle(object):
+class MethodHandle:
     def __init__(self, ssock):
         ssock.add_map(RequestHandle.DONE, self.process)
 
@@ -220,11 +224,11 @@ class MethodHandle(object):
         # The browser will remain waiting for the service response.
         ssock.dump(b'')
 
-class NonPersistentConnection(object):
+class NonPersistentConnection:
     def __init__(self, ssock):
         ssock.add_map(DUMPED, lambda con: lose(con))
 
-class DebugRequest(object):
+class DebugRequest:
     def __init__(self, ssock):
         ssock.add_map(RequestHandle.DONE, self.process)
 
@@ -234,7 +238,7 @@ class DebugRequest(object):
         print(request.data)
         print(request.headers)
 
-class Locate(object):
+class Locate:
     """
     """
 
